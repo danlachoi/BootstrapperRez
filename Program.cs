@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Threading.Tasks;
 
 namespace Bootstrapper
 {
@@ -17,14 +18,34 @@ namespace Bootstrapper
         private const string GitHubApiUrl = "https://api.github.com/repos/RezWare-SoftWare/BootstrapperRez/releases/latest";
         private const string AdditionalZipUrl = "https://cdn.discordapp.com/attachments/1299965685832749059/1303310504433025154/bin.zip?ex=672b49fe&is=6729f87e&hm=70ff481c8698dd95f104e35297fc2146ad6a1a0985e8ba16e2c3ee7752acc89b&";
 
+        private static TaskCompletionSource<bool> _downloadTaskCompletionSource = new TaskCompletionSource<bool>();
+
         private static void ShowBanner()
         {
-            Console.WriteLine(@"__________                __      __                       
+            Console.Clear();
+
+            string banner = @"
+__________                __      __                       
 \______   \ ____ ________/  \    /  \_____ _______   ____  
  |       _// __ \\___   /\   \/\/   /\__  \\_  __ \_/ __ \ 
  |    |   \  ___/ /    /  \        /  / __ \|  | \/\  ___/ 
  |____|_  /\___  >_____ \  \__/\  /  (____  /__|    \___  >
-        \/     \/      \/       \/        \/            \/   ");
+        \/     \/      \/       \/        \/            \/   
+";
+
+            string[] bannerLines = banner.Split('\n');
+            int consoleWidth = Console.WindowWidth;
+
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+
+            for (int i = 0; i < bannerLines.Length; i++)
+            {
+                int padding = (consoleWidth - bannerLines[i].Length) / 2;
+                Console.WriteLine(new string(' ', Math.Max(padding, 0)) + bannerLines[i]);
+            }
+
+            Console.WriteLine();
+            Console.ResetColor();
         }
 
         private static void DeleteOldFiles()
@@ -32,14 +53,14 @@ namespace Bootstrapper
             if (Directory.Exists(InstallDirectory))
             {
                 Directory.Delete(InstallDirectory, true);
-                Console.WriteLine("[INFO] Old files deleted.");
+                Console.WriteLine("[*] Old files deleted.");
             }
         }
 
         private static void SaveBuildInfo(string version)
         {
             File.WriteAllText(VersionFilePath, version);
-            Console.WriteLine($"[INFO] Updated build version saved: {version}");
+            Console.WriteLine($"[*] Updated build version saved: {version}");
         }
 
         private static (string, string) GetLatestReleaseInfo()
@@ -54,7 +75,7 @@ namespace Bootstrapper
                 var downloadUrlStart = json.IndexOf("\"browser_download_url\":\"") + 24;
                 var downloadUrlEnd = json.IndexOf("\"", downloadUrlStart);
                 var zipUrl = json.Substring(downloadUrlStart, downloadUrlEnd - downloadUrlStart);
-                Console.WriteLine($"[INFO] Latest version found on GitHub: {tagName}");
+                Console.WriteLine($"[*] Latest version found on GitHub: {tagName}");
                 return (tagName, zipUrl);
             }
         }
@@ -71,7 +92,7 @@ namespace Bootstrapper
             string binDirectory = Path.Combine(CurrentDirectory, "bin");
             if (Directory.Exists(binDirectory))
             {
-                Console.WriteLine("[INFO] Additional files already downloaded.");
+                Console.WriteLine("[*] Additional files already downloaded.");
                 return;
             }
 
@@ -89,23 +110,26 @@ namespace Bootstrapper
             if (e.Cancelled || e.Error != null)
             {
                 PrintError($"Download error for additional files: {e.Error?.Message}");
+                _downloadTaskCompletionSource.SetResult(false);
                 return;
             }
 
-            Console.WriteLine("\n[INFO] Additional files downloaded. Extracting...");
+            Console.WriteLine("\n[*] Additional files downloaded. Extracting...");
             ZipFile.ExtractToDirectory(AdditionalZipLocation, CurrentDirectory);
             File.Delete(AdditionalZipLocation);
-            Console.WriteLine("[INFO] Additional files installation complete.");
+            Console.WriteLine("[*] Additional files installation complete.");
 
             string binDirectory = Path.Combine(CurrentDirectory, "bin");
             if (Directory.Exists(binDirectory))
             {
-                Console.WriteLine("[INFO] bin folder exists after extraction.");
+                Console.WriteLine("[*] bin folder exists after extraction.");
             }
             else
             {
-                PrintError("[WARNING] bin folder does not exist after extraction.");
+                PrintError("[!] bin folder does not exist after extraction.");
             }
+
+            _downloadTaskCompletionSource.SetResult(true);
         }
 
         private static void CreateRequiredDirectories()
@@ -114,13 +138,13 @@ namespace Bootstrapper
             if (!Directory.Exists(workspaceDirectory))
             {
                 Directory.CreateDirectory(workspaceDirectory);
-                Console.WriteLine("[INFO] Created 'workspace' directory.");
+                Console.WriteLine("[*] Created 'workspace' directory.");
             }
         }
 
         private static void Wc_DownloadProgressChanged(object sender, DownloadProgressChangedEventArgs e)
         {
-            Console.Write($"\r[INFO] Downloading... {e.ProgressPercentage}% ({e.BytesReceived}/{e.TotalBytesToReceive} bytes)");
+            Console.Write($"\r[*] Downloading... {e.ProgressPercentage}% ({e.BytesReceived}/{e.TotalBytesToReceive} bytes)");
         }
 
         private static void Wc_DownloadFileCompleted(object sender, AsyncCompletedEventArgs e)
@@ -128,14 +152,15 @@ namespace Bootstrapper
             if (e.Cancelled || e.Error != null)
             {
                 PrintError($"Download error: {e.Error?.Message}");
+                _downloadTaskCompletionSource.SetResult(false);
                 return;
             }
 
-            Console.WriteLine("\n[INFO] Download complete. Extracting files...");
+            Console.WriteLine("\n[*] Download complete. Extracting files...");
             ZipFile.ExtractToDirectory(ZipLocation, InstallDirectory);
             SaveBuildInfo(latestVersion);
             File.Delete(ZipLocation);
-            Console.WriteLine("[INFO] Installation complete. Launching application...");
+            Console.WriteLine("[*] Installation complete. Launching application...");
 
             if (File.Exists(ExecutablePath))
             {
@@ -163,11 +188,11 @@ namespace Bootstrapper
             Console.WriteLine();
         }
 
-        private static void Main(string[] args)
+        private static async Task Main(string[] args)
         {
             Console.Title = "RezWare Bootstrapper";
             ShowBanner();
-            Console.WriteLine("[INFO] Checking for updates...");
+            Console.WriteLine("[*] Checking for updates...");
 
             try
             {
@@ -177,7 +202,7 @@ namespace Bootstrapper
 
                 if (!IsUpToDate(latestVersion))
                 {
-                    Console.WriteLine($"[INFO] New update available: RezWare {latestVersion}. Updating...");
+                    Console.WriteLine($"[*] New update available: RezWare {latestVersion}. Updating...");
                     DeleteOldFiles();
 
                     using (var wc = new WebClient())
@@ -190,15 +215,8 @@ namespace Bootstrapper
                 }
                 else
                 {
-                    Console.WriteLine("[INFO] You are already using the latest version.");
-                    if (File.Exists(ExecutablePath))
-                    {
-                        System.Diagnostics.Process.Start(ExecutablePath);
-                    }
-                    else
-                    {
-                        PrintError("RezWare.exe not found.");
-                    }
+                    Console.WriteLine("[*] You are already using the latest version.");
+                    LaunchApplication();
                 }
             }
             catch (Exception ex)
@@ -207,9 +225,28 @@ namespace Bootstrapper
             }
 
             CreateRequiredDirectories();
-            Console.WriteLine("\nPress any key to exit...");
-            Console.ReadKey();
+            Console.WriteLine("\n[!] The application will close when end loading in 3 seconds...");
+
+            await _downloadTaskCompletionSource.Task;
+
+            await Task.Delay(3000);
             Environment.Exit(0);
+        }
+
+        private async static void LaunchApplication()
+        {
+            if (File.Exists(ExecutablePath))
+            {
+                Console.WriteLine("[*] Launching the application...");
+                System.Diagnostics.Process.Start(ExecutablePath);
+
+                await Task.Delay(3000);
+                Environment.Exit(0);
+            }
+            else
+            {
+                PrintError("RezWare.exe not found.");
+            }
         }
     }
 }
