@@ -12,18 +12,15 @@ namespace Bootstrapper
         private static readonly string CurrentDirectory = Environment.CurrentDirectory;
         private static readonly string ZipLocation = Path.Combine(CurrentDirectory, "RezWare.zip");
         private static readonly string InstallDirectory = Path.Combine(CurrentDirectory, "RezWare");
-        private static readonly string AdditionalZipLocation = Path.Combine(CurrentDirectory, "bin.zip");
         private static readonly string VersionFilePath = Path.Combine(CurrentDirectory, "build.txt");
         private static readonly string ExecutablePath = Path.Combine(InstallDirectory, "RezWareUi.exe");
         private const string GitHubApiUrl = "https://api.github.com/repos/RezWare-SoftWare/BootstrapperRez/releases/latest";
-        private const string AdditionalZipUrl = "https://cdn.discordapp.com/attachments/1299965685832749059/1303310504433025154/bin.zip?ex=672b49fe&is=6729f87e&hm=70ff481c8698dd95f104e35297fc2146ad6a1a0985e8ba16e2c3ee7752acc89b&";
 
         private static TaskCompletionSource<bool> _downloadTaskCompletionSource = new TaskCompletionSource<bool>();
 
         private static void ShowBanner()
         {
             Console.Clear();
-
             string banner = @"
 __________                __      __                       
 \______   \ ____ ________/  \    /  \_____ _______   ____  
@@ -36,13 +33,11 @@ __________                __      __
             int consoleWidth = Console.WindowWidth;
 
             Console.ForegroundColor = ConsoleColor.DarkYellow;
-
             foreach (string line in bannerLines)
             {
                 int padding = (consoleWidth - line.Length) / 2;
                 Console.WriteLine(new string(' ', Math.Max(padding, 0)) + line);
             }
-
             Console.WriteLine();
             Console.ResetColor();
         }
@@ -51,8 +46,23 @@ __________                __      __
         {
             if (Directory.Exists(InstallDirectory))
             {
-                Directory.Delete(InstallDirectory, true);
-                Console.WriteLine("[*] Old files deleted successfully.");
+                Console.WriteLine("[*] Deleting old files, but preserving the 'scripts' folder...");
+                foreach (var directory in Directory.GetDirectories(InstallDirectory))
+                {
+                    if (Path.GetFileName(directory) != "scripts")
+                    {
+                        Directory.Delete(directory, true);
+                    }
+                }
+                foreach (var file in Directory.GetFiles(InstallDirectory))
+                {
+                    File.Delete(file);
+                }
+                Console.WriteLine("[*] Old files deleted successfully, 'scripts' folder preserved.");
+            }
+            else
+            {
+                Console.WriteLine("[*] No old files to delete.");
             }
         }
 
@@ -92,61 +102,6 @@ __________                __      __
             return currentVersion == latestVersion;
         }
 
-        private static void DownloadAdditionalFiles()
-        {
-            string binDirectory = Path.Combine(CurrentDirectory, "bin");
-            if (Directory.Exists(binDirectory))
-            {
-                Console.WriteLine("[*] Additional files already downloaded.");
-                return;
-            }
-
-            using (var wc = new WebClient())
-            {
-                wc.Headers.Add("User-Agent", "BootstrapperApp");
-                wc.DownloadProgressChanged += Wc_DownloadProgressChanged;
-                wc.DownloadFileCompleted += Wc_DownloadFileCompletedAdditional;
-                wc.DownloadFileAsync(new Uri(AdditionalZipUrl), AdditionalZipLocation);
-            }
-        }
-
-        private static void Wc_DownloadFileCompletedAdditional(object sender, AsyncCompletedEventArgs e)
-        {
-            if (e.Cancelled || e.Error != null)
-            {
-                PrintError($"Error downloading additional files: {e.Error?.Message}");
-                _downloadTaskCompletionSource.SetResult(false);
-                return;
-            }
-
-            Console.WriteLine("\n[*] Additional files downloaded. Extracting...");
-            ZipFile.ExtractToDirectory(AdditionalZipLocation, CurrentDirectory);
-            File.Delete(AdditionalZipLocation);
-            Console.WriteLine("[*] Additional files installed successfully.");
-
-            string binDirectory = Path.Combine(CurrentDirectory, "bin");
-            if (Directory.Exists(binDirectory))
-            {
-                Console.WriteLine("[*] 'bin' folder found after extraction.");
-            }
-            else
-            {
-                PrintError("[!] 'bin' folder not found after extraction.");
-            }
-
-            _downloadTaskCompletionSource.SetResult(true);
-        }
-
-        private static void CreateRequiredDirectories()
-        {
-            var workspaceDirectory = Path.Combine(CurrentDirectory, "workspace");
-            if (!Directory.Exists(workspaceDirectory))
-            {
-                Directory.CreateDirectory(workspaceDirectory);
-                Console.WriteLine("[*] 'workspace' directory created.");
-            }
-        }
-
         private static void Wc_DownloadProgressChanged(object sender, DownloadProgressChangedEventArgs e)
         {
             Console.Write($"\r[*] Downloading... {e.ProgressPercentage}% ({e.BytesReceived}/{e.TotalBytesToReceive} bytes)");
@@ -176,7 +131,7 @@ __________                __      __
                 PrintError("Error: 'RezWareUi.exe' not found.");
             }
 
-            DownloadAdditionalFiles();
+            _downloadTaskCompletionSource.SetResult(true);
         }
 
         private static string latestVersion;
@@ -231,7 +186,6 @@ __________                __      __
                 PrintError($"Error checking for updates: {ex.Message}");
             }
 
-            CreateRequiredDirectories();
             Console.WriteLine("\n[!] The application will close in 3 seconds...");
 
             await _downloadTaskCompletionSource.Task;
